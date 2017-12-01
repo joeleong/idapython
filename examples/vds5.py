@@ -1,8 +1,10 @@
-
+import idc
+import idaapi
 import ida_hexrays
 import ida_kernwin
-import ida_gdl
 import ida_lines
+import ida_graph
+
 
 ACTION_NAME = "vds5.py:displaygraph"
 ACTION_SHORTCUT = "Ctrl+Shift+G"
@@ -78,12 +80,15 @@ COLORS_LUT = {
 def get_color_name(c):
     return COLORS_LUT[c] if c in COLORS_LUT.keys() else "?"
 
-class cfunc_graph_t: # alas we can't inherit gdl_graph_t
+class cfunc_graph_t(ida_graph.GraphViewer): # alas we can't inherit gdl_graph_t
     def __init__(self, highlight):
         self.items = [] # list of citem_t
         self.highlight = highlight
         self.succs = [] # list of lists of next nodes
         self.preds = [] # list of lists of previous nodes
+        ida_graph.GraphViewer.__init__(self, 'cfunc_graph_t')
+        self.id_map = {}
+        self.rev_id_map = {}
 
     def nsucc(self, n):
         return len(self.succs[n]) if self.size() else 0
@@ -153,10 +158,10 @@ class cfunc_graph_t: # alas we can't inherit gdl_graph_t
         elif op == ida_hexrays.cit_asm:
             parts.append("<asm statements; unsupported ATM>")
             # parts.append(" %a.%d" % ())
-        parts.append("\\n")
+        parts.append("\n")
         parts.append("ea: %08X" % item.ea)
         if item.is_expr() and not expr.type.empty():
-            parts.append("\\n")
+            parts.append("\n")
             tstr = expr.type._print()
             parts.append(tstr if tstr else "?")
         return "".join(parts)
@@ -165,6 +170,8 @@ class cfunc_graph_t: # alas we can't inherit gdl_graph_t
         item = self.items[n]
         if self.highlight is not None and item.obj_id == self.highlight.obj_id:
             return CL_GREEN
+        if not item.is_expr():
+            return CL_LIGHTYELLOW
         return None
 
     def gen_gdl(self, fname):
@@ -222,6 +229,50 @@ class cfunc_graph_t: # alas we can't inherit gdl_graph_t
         for p in self.preds:
             print("\t%s" % p)
 
+    def Clear(self):
+        ida_graph.GraphViewer.Clear(self)
+        self.id_map = {}
+        self.rev_id_map = {}
+
+    def OnRefresh(self):
+        self.Clear()
+
+        for n, item in enumerate(self.items):
+            gid = self.AddNode(item)
+            self.id_map[gid] = n
+            self.rev_id_map[n] = gid
+
+        for n, item in enumerate(self.items):
+            for i in xrange(self.nsucc(n)):
+                t = self.succ(n, i)
+                self.AddEdge(self.rev_id_map[n],
+                             self.rev_id_map[t])
+        return True
+
+    def OnGetText(self, node_id):
+        label = self.get_node_label(self.id_map[node_id])
+        color = self.get_node_color(self.id_map[node_id])
+        if color is not None:
+            return (label, color)
+        return label
+
+    def OnHint(self, node_id):
+        item = self.items[self.id_map[node_id]]
+        if item.ea != ida_idaapi.BADADDR:
+            return ida_lines.tag_remove(ida_lines.generate_disasm_line(item.ea))
+        return None
+
+    def OnDblClick(self, node_id):
+        item = self.items[self.id_map[node_id]]
+        if item.ea != ida_idaapi.BADADDR:
+            ida_kernwin.jumpto(item.ea)
+
+    def OnClick(self, node_id):
+        return True
+
+    def OnSelect(self, node_id):
+        return True
+
 
 class graph_builder_t(ida_hexrays.ctree_parentee_t):
 
@@ -277,10 +328,7 @@ class display_graph_ah_t(ida_kernwin.action_handler_t):
         gb = graph_builder_t(cg)
         gb.apply_to(vu.cfunc.body, None)
 
-        import tempfile
-        fname = tempfile.mktemp(suffix=".gdl")
-        cg.gen_gdl(fname)
-        ida_gdl.display_gdl(fname)
+        cg.Show()
         return 1
 
     def update(self, ctx):
@@ -306,3 +354,13 @@ if ida_hexrays.init_hexrays_plugin():
     idaapi.install_hexrays_callback(cb)
 else:
     print 'hexrays-graph: hexrays is not available.'
+
+if __name__ == '__main__':
+    vu = ida_hexrays.open_pseudocode(idc.here(), -1)
+    vu.get_current_item(ida_hexrays.USE_KEYBOARD)
+    highlight = vu.item.e if vu.item.is_citem() else None
+
+    cg = cfunc_graph_t(highlight)
+    gb = graph_builder_t(cg)
+    gb.apply_to(vu.cfunc.body, None)
+    cg.Show()
