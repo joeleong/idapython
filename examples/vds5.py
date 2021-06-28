@@ -179,7 +179,7 @@ class cfunc_graph_t(ida_graph.GraphViewer): # alas we can't inherit gdl_graph_t
             out.write("graph: {\n")
 
             out.write("// *** nodes\n")
-            for n in xrange(len(self.items)):
+            for n in range(len(self.items)):
                 item = self.items[n]
                 node_label = self.get_node_label(n)
                 node_props = [""]
@@ -195,10 +195,10 @@ class cfunc_graph_t(ida_graph.GraphViewer): # alas we can't inherit gdl_graph_t
                     " ".join(node_props)))
 
             out.write("// *** edges\n")
-            for n in xrange(len(self.items)):
+            for n in range(len(self.items)):
                 item = self.items[n]
                 out.write("// edges %d -> ?\n" % n)
-                for i in xrange(self.nsucc(n)):
+                for i in range(self.nsucc(n)):
                     t = self.succ(n, i)
                     label = ""
                     if item.is_expr():
@@ -243,7 +243,7 @@ class cfunc_graph_t(ida_graph.GraphViewer): # alas we can't inherit gdl_graph_t
             self.rev_id_map[n] = gid
 
         for n, item in enumerate(self.items):
-            for i in xrange(self.nsucc(n)):
+            for i in range(self.nsucc(n)):
                 t = self.succ(n, i)
                 self.AddEdge(self.rev_id_map[n],
                              self.rev_id_map[t])
@@ -279,10 +279,10 @@ class graph_builder_t(ida_hexrays.ctree_parentee_t):
     def __init__(self, cg):
         ida_hexrays.ctree_parentee_t.__init__(self)
         self.cg = cg
-        self.reverse = {} # citem_t -> node#
+        self.reverse = [] # (citem_t, node#) tuples
 
     def add_node(self, i):
-        for k in self.reverse.keys():
+        for k,_ in self.reverse:
             if i.obj_id == k.obj_id:
                 ida_kernwin.warning("bad ctree - duplicate nodes! (i.ea=%x)" % i.ea)
                 self.cg.dump()
@@ -292,7 +292,7 @@ class graph_builder_t(ida_hexrays.ctree_parentee_t):
         if n <= len(self.cg.items):
             self.cg.items.append(i)
         self.cg.items[n] = i
-        self.reverse[i] = n
+        self.reverse.append((i, n))
         return n
 
     def process(self, i):
@@ -301,7 +301,7 @@ class graph_builder_t(ida_hexrays.ctree_parentee_t):
             return n
         if len(self.parents) > 1:
             lp = self.parents.back().obj_id
-            for k, v in self.reverse.items():
+            for k, v in self.reverse:
                 if k.obj_id == lp:
                     p = v
                     break
@@ -353,7 +353,7 @@ if ida_hexrays.init_hexrays_plugin():
             ACTION_SHORTCUT))
     idaapi.install_hexrays_callback(cb)
 else:
-    print 'hexrays-graph: hexrays is not available.'
+    print('hexrays-graph: hexrays is not available.')
 
 if __name__ == '__main__':
     vu = ida_hexrays.open_pseudocode(idc.here(), -1)
